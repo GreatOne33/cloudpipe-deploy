@@ -30,7 +30,7 @@ jobs:
         run: |
           echo "Querying dynamic runtime configurations from AWS Systems Manager..." 
 
-          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_bucket_name" --query "Parameter.Value" --output text) 
+          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_website_bucket" --query "Parameter.Value" --output text) 
           DIST_ID=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_distribution_id" --query "Parameter.Value" --output text)
 
           echo "::add-mask::$BUCKET"
