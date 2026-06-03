@@ -30,7 +30,7 @@ jobs:
         run: |
           echo "Querying dynamic runtime configurations from AWS Systems Manager..." 
 
-          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/website_bucket_name" --query "Parameter.Value" --output text) 
+          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_bucket_name" --query "Parameter.Value" --output text) 
           DIST_ID=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_distribution_id" --query "Parameter.Value" --output text)
 
           echo "::add-mask::$BUCKET"
@@ -47,4 +47,3 @@ jobs:
         run: | 
           aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id}} --paths "/*" 
 
-          
