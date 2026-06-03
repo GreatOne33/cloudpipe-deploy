@@ -37,7 +37,7 @@ jobs:
           echo "::add-mask::$DIST_ID"
 
           echo "s3_bucket=$BUCKET" >> $GITHUB_OUTPUT 
-          echo "cloudfront_id=$DIST_ID" >> $GITHYB_OUTPUT 
+          echo "cloudfront_id=$DIST_ID" >> $GITHUB_OUTPUT 
 
       - name: Synchronize Static App Assets to Private S3 
         run: | 
