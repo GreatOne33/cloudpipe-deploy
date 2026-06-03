@@ -1,0 +1,50 @@
+name: Secure Website CI/CD Pipeline 
+
+on:
+  push:
+    branches:
+      - main 
+
+permissions:
+  id-token: write 
+  contents: read 
+
+jobs:
+  deploy: 
+    name: Fetch Context & Sync Assets 
+    runs-on: ubuntu-latest 
+
+    steps:
+      - name: Checkout Code Repo 
+        uses: actions/checkout@v4 
+
+      - name: Configure AWS Creds via Secure OIDC 
+        uses: aws-actions/configure-aws-credentials@v4 
+        with: 
+          role-to-assume: ${{ vars.AWS_ROLE_ARN}} 
+          aws-region: us-east-1 
+          audience: sts.amazonaws.com 
+
+      - name: Progammatically Fecth Live Settings from AWS SSM 
+        id: ssm_fetch 
+        run: |
+          echo "Querying dynamic runtime configurations from AWS Systems Manager..." 
+
+          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/website_bucket_name" --query "Parameter.Value" --output text) 
+          DIST_ID=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_distribution_id" --query "Parameter.Value" --output text)
+
+          echo "::add-mask::$BUCKET"
+          echo "::add-mask::$DIST_ID"
+
+          echo "s3_bucket=$BUCKET" >> $GITHUB_OUTPUT 
+          echo "cloudfront_id=$DIST_ID" >> $GITHYB_OUTPUT 
+
+      - name: Synchronize Static App Assets to Private S3 
+        run: | 
+          aws s3 sync ./website/ s3://${{ steps.ssm_fetch.outputs.s3_bucket}} --delete 
+
+      - name: Invalidate Cloudfront Global Cache Edge Points 
+        run: | 
+          aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id}} --paths "/*" 
+
+          

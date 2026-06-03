@@ -1,0 +1,1 @@
+console.log("CloudPipe Deploy: Native asset delivery channel initialized successfully.");
