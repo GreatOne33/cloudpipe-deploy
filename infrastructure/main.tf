@@ -18,9 +18,7 @@ data "tls_certificate" "github" {
 resource "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
-
   thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
-
 }
 
 
@@ -42,7 +40,7 @@ data "aws_iam_policy_document" "github_actions_trust" {
     }
 
     condition {
-      test     = "StringLike"
+      test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
       values   = ["repo:GreatOne33/cloudpipe-deploy:ref:refs/heads/main"]
     }
@@ -53,7 +51,7 @@ data "aws_iam_policy_document" "github_actions_trust" {
 
 # IAM role that GitHub Actions assumes at deploy time (OIDC → STS → temporary credentials).
 resource "aws_iam_role" "github_actions" {
-  name               = "github-actions-s3-deployer-role"
+  name               = "github-actions-deployer-${random_string.suffix.result}"
   assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
 }
 
@@ -80,7 +78,7 @@ data "aws_iam_policy_document" "cicd_execution_permissions" {
   statement {
     sid       = "ReadSSMParameters"
     actions   = ["ssm:GetParameter", "ssm:GetParameters"]
-    resources = ["arn:aws:ssm:us-east-1:*:parameter/config/production/cloudpipe/*"]
+    resources = ["arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter/config/production/cloudpipe/*"] 
   }
 }
 
@@ -104,7 +102,7 @@ resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
 
 # Stores built website files; not served directly to the public (access is via CloudFront only).
 resource "aws_s3_bucket" "cicd_website_bucket" {
-  bucket = "aws3-cicd-website-bucket"
+  bucket = "cloudpipe-vault-${random_string.suffix.result}"
 }
 
 # Blocks all public ACLs and bucket policies so objects cannot be exposed on the open internet.
@@ -139,6 +137,43 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cicd_website_buck
   }
 }
 
+resource "aws_wafv2_web_acl" "cloudpipe_waf" {
+  name = "cloudpipe-cdn-waf-${random_string.suffix.result}"
+  description = "Provides rate limiting mitigations against economic billing spikes"
+  scope = "CLOUDFRONT"
+
+  default_action {
+    allow {}
+  }
+
+  rule {
+    name = "IPRateLimit"
+    priority = 1
+    action {
+      block {}
+    }
+    statement {
+      rate_based_statement {
+        limit = 300
+        aggregate_key_type = "IP"
+      }
+    }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true 
+      metric_name = "IPRateLimitMetric"
+      sampled_requests_enabled = true 
+    }
+  }
+
+  visibility_config {
+    cloudwatch_metrics_enabled = true 
+    metric_name = "CloudFrontWAFMetric" 
+    sampled_requests_enabled = true 
+  }
+}
+
+
 
 # -----------------------------------------------------------------------------
 # CloudFront — CDN in front of S3 (HTTPS, caching, private origin access)
@@ -146,7 +181,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cicd_website_buck
 
 # Origin Access Control: CloudFront signs requests to S3; bucket stays private without public URLs.
 resource "aws_cloudfront_origin_access_control" "cicd_website_oac" {
-  name                              = "awscicd-s3-cicd-website-origin-access-control"
+  name                              = "cloudpipe-oac-${random_string.suffix.result}"
   description                       = "Secures S3 backend so data is readable only via Cloudfront authentication"
   origin_access_control_origin_type = "s3"
   signing_behavior                  = "always"
@@ -164,6 +199,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
 
   enabled             = true
   is_ipv6_enabled     = true
+  web_acl_id = aws_wafv2_web_acl.cloudpipe_waf.arn
   default_root_object = "index.html"
 
   default_cache_behavior {
@@ -172,8 +208,17 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
     viewer_protocol_policy = "redirect-to-https"
     target_origin_id       = "S3-Website-Origin-Gateway"
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
+
+    response_headers_policy_id = "67f7726c-6f97-4210-82d0-05127872e616"
   }
 
+  custom_error_response {
+    error_code = 403 
+    response_code = 200
+    response_page_path = "/index.html"
+    error_caching_min_ttl = 10
+  }
+  
   restrictions {
     geo_restriction {
       restriction_type = "none"
@@ -240,3 +285,4 @@ resource "aws_ssm_parameter" "cloudfront_distibution_id" {
   value       = aws_cloudfront_distribution.cicd_website_distribution.id
   description = "The Edge cache network distribution ID used to trigger global file flushes"
 }
+
