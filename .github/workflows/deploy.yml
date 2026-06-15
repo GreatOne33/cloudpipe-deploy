@@ -10,6 +10,24 @@ permissions:
   contents: read 
 
 jobs:
+
+  security_scan:
+    name: "Trivy Security Audit"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repo 
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Execute Trivy Vulnerability Scanner 
+        uses: aquasecurity/trivy-action@0.28.0 
+        with: 
+          scan-type: 'config'
+          scan-ref: '.'
+          hide-secret-key: true 
+          exit-code: '1'
+          ignore-unfixed: true 
+          severity: 'HIGH,CRITICAL'
+          
   deploy: 
     name: Fetch Context & Sync Assets 
     runs-on: ubuntu-latest 
