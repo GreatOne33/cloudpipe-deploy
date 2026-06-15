@@ -190,6 +190,10 @@ resource "aws_cloudfront_origin_access_control" "cicd_website_oac" {
 }
 
 # Global distribution that serves the site from edge locations and pulls content from the S3 bucket.
+
+data "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "Managed-SecurityHeadersPolicy"
+}
 resource "aws_cloudfront_distribution" "cicd_website_distribution" {
   origin {
     domain_name              = aws_s3_bucket.cicd_website_bucket.bucket_regional_domain_name
@@ -209,7 +213,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
     target_origin_id       = "S3-Website-Origin-Gateway"
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
 
-    response_headers_policy_id = "67f7726c-6f97-4210-82d0-05127872e616"
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
   }
 
   custom_error_response {
