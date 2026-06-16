@@ -23,7 +23,7 @@ jobs:
         with: 
           scan-type: 'fs'
           scan-ref: '.'
-          Scanners: 'vuln,secret,misconfig'
+          scanners: 'vuln,secret,misconfig'
           hide-secret-key: true 
           exit-code: '1'
           ignore-unfixed: true 
