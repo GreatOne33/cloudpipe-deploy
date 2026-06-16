@@ -195,6 +195,7 @@ resource "aws_wafv2_web_acl" "cloudpipe_waf" {
     metric_name = "CloudFrontWAFMetric" 
     sampled_requests_enabled = true 
   }
+}
 
 # -----------------------------------------------------------------------------
 # CloudFront — CDN in front of S3 (HTTPS, caching, private origin access)
