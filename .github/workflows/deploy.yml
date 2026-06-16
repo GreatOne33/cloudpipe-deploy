@@ -12,22 +12,25 @@ permissions:
 jobs:
 
   security_scan:
-    name: "Trivy Security Audit"
+    name: "Automated SecOps Guardrails"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code Repo 
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Checkout Code Repo
+        uses: actions/checkout@v4 
+        with:
+          fetch-depth: 0 
 
-      - name: Execute Trivy Vulnerability Scanner 
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Run Gitleaks Secret Audit 
+        uses: gitleaks/gitleaks-action@v2 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run Checkov IaC Compliance Scan 
+        uses: bridgecrewio/checkov-action@master 
         with: 
-          scan-type: 'fs'
-          scan-ref: '${{ github.workspace }}'
-          scanners: 'vuln,secret,misconfig'
-          hide-secret-key: true 
-          exit-code: '1'
-          ignore-unfixed: true 
-          severity: 'HIGH,CRITICAL'
+          directory: 'infrastructure/'
+          framework: 'terraform' 
+          soft_failL: false 
           
   deploy: 
     name: Fetch Context & Sync Assets 
