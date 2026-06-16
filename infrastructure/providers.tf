@@ -11,6 +11,11 @@ terraform {
         source = "hashicorp/tls"
         version = "~>4.0"
       }
+
+      github = {
+        source = "integrations/github"
+        version = "~>6.0"
+      }
     }
   
 }
@@ -27,3 +32,10 @@ resource "random_string" "suffix" {
   upper = false
 }
 
+data "external" "github_token" {
+  program = ["sh", "-c", "echo \"{\\\"token\\\":\\\"$(gh auth token)\\\"}\""]
+}
+provider "github" {
+  owner = "GreatOne33"
+  token = data.external.github_token.result.token
+}

@@ -290,3 +290,9 @@ resource "aws_ssm_parameter" "cloudfront_distibution_id" {
   description = "The Edge cache network distribution ID used to trigger global file flushes"
 }
 
+resource "github_actions_variable" "oidc_role_var" {
+  repository = "cloudpipe-deploy"
+  variable_name = "AWS_ROLE_ARN"
+  value = aws_iam_role.github_actions.arn
+}
+
