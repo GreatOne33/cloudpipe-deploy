@@ -139,7 +139,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cicd_website_buck
 
 resource "aws_wafv2_web_acl" "cloudpipe_waf" {
   name = "cloudpipe-cdn-waf-${random_string.suffix.result}"
-  description = "Provides rate limiting mitigations against economic billing spikes"
+  description = "Provides rate limiting and known bad input protections against exploits and billing spikes"
   scope = "CLOUDFRONT"
 
   default_action {
@@ -147,11 +147,35 @@ resource "aws_wafv2_web_acl" "cloudpipe_waf" {
   }
 
   rule {
-    name = "IPRateLimit"
+    name = "AWS-AWSManagedRulesKnownBadInputsRuleSet" 
     priority = 1
+
+    statement {
+      managed_rule_group_statement {
+        name = "AWSManagedRulesKnownBadInputsRuleSet" 
+        vendor_name = "AWS"
+      }
+    }
+  
+    override_action {
+      none {}
+  }
+
+    visibility_config {
+      cloudwatch_metrics_enabled = true 
+      metric_name = "WAFKnownBadInputsMetric" 
+      sampled_requests_enabled = true
+    }
+  }
+
+  rule {
+    
+    name = "IPRateLimit"
+    priority = 2
     action {
       block {}
     }
+    
     statement {
       rate_based_statement {
         limit = 300
@@ -171,9 +195,6 @@ resource "aws_wafv2_web_acl" "cloudpipe_waf" {
     metric_name = "CloudFrontWAFMetric" 
     sampled_requests_enabled = true 
   }
-}
-
-
 
 # -----------------------------------------------------------------------------
 # CloudFront — CDN in front of S3 (HTTPS, caching, private origin access)
@@ -222,7 +243,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
     response_page_path = "/index.html"
     error_caching_min_ttl = 10
   }
-  
+
   restrictions {
     geo_restriction {
       restriction_type = "none"
