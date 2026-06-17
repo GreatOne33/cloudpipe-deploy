@@ -245,6 +245,12 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
     }
   }
 
+  logging_config {
+    include_cookies = false 
+    bucket = aws_s3_bucket.cicd_website_backup.bucket_regional_domain_name
+    prefix = "cloudfront-logs"
+  }
+
   enabled             = true
   is_ipv6_enabled     = true
   web_acl_id = aws_wafv2_web_acl.cloudpipe_waf.arn
@@ -269,12 +275,14 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
 
   restrictions {
     geo_restriction {
-      restriction_type = "none"
+      restriction_type = "blacklist"
+      locations = []
     }
   }
 
   viewer_certificate {
     cloudfront_default_certificate = true
+    minimum_protocol_version = "TLSv1.2_2021"
   }
 }
 
