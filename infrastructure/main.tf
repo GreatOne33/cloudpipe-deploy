@@ -219,8 +219,30 @@ data "aws_cloudfront_response_headers_policy" "security_headers" {
 resource "aws_cloudfront_distribution" "cicd_website_distribution" {
   origin {
     domain_name              = aws_s3_bucket.cicd_website_bucket.bucket_regional_domain_name
-    origin_id                = "S3-Website-Origin-Gateway"
+    origin_id                = "S3-Website-Origin-Primary"
     origin_access_control_id = aws_cloudfront_origin_access_control.cicd_website_oac.id
+  }
+
+  origin {
+    domain_name = aws_s3_bucket.cicd_website_backup.bucket_regional_domain_name 
+    origin_id = "S3-Website_Origin-Backup" 
+    origin_access_control_id = aws_cloudfront_origin_access_control.cicd_website_oac.id 
+  }
+
+  origin_group {
+    origin_id = "S3-Website-Origin-Group"
+
+    failover_criteria {
+      status_codes = [500, 502, 503, 504] 
+    }
+
+    member {
+      origin_id = "S3-Website-Origin-Primary"
+    }
+
+    member {
+      origin_id = "S3-Website-Origin-Backup"
+    }
   }
 
   enabled             = true
@@ -232,7 +254,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
     allowed_methods        = ["GET", "HEAD"]
     cached_methods         = ["GET", "HEAD"]
     viewer_protocol_policy = "redirect-to-https"
-    target_origin_id       = "S3-Website-Origin-Gateway"
+    target_origin_id       = "S3-Website-Origin-Group"
     cache_policy_id        = "658327ea-f89d-4fab-a63d-7e88639e58f6"
 
     response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
@@ -316,5 +338,36 @@ resource "github_actions_variable" "oidc_role_var" {
   repository = "cloudpipe-deploy"
   variable_name = "AWS_ROLE_ARN"
   value = aws_iam_role.github_actions.arn
+}
+
+resource "aws_s3_bucket" "cicd_website_backup" {
+  bucket = "cloudpipe-backup-${random_string.suffix.result}"
+}
+
+resource "aws_s3_bucket_public_access_block" "cicd_website_backup_policy" {
+  bucket = aws_s3_bucket.cicd_website_backup.id 
+
+  block_public_acls = true 
+  block_public_policy = true 
+  ignore_public_acls = true 
+  restrict_public_buckets = true 
+}
+
+resource "aws_s3_bucket_versioning" "cicd_website_backup_bucket_versioning" {
+  bucket = aws_s3_bucket.cicd_website_backup.id 
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "cicd_website_backup_bucket_encrypt" {
+  bucket = aws_s3_bucket.cicd_website_backup.id 
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
 }
 
