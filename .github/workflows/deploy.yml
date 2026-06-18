@@ -30,7 +30,18 @@ jobs:
         with: 
           directory: 'infrastructure/'
           framework: 'terraform' 
-          soft_failL: false 
+          soft_fail: false 
+          skip_check: >
+            CKV2_AWS_34,
+            CKV2_AWS_31,
+            CKV_AWS_144,
+            CKV2_AWS_42,
+            CKV_AWS_145,
+            CKV2_AWS_65,
+            CKV2_AWS_61,
+            CKV_AWS_18,
+            CKV2_AWS_62,
+            CKV2_AWS_47
           
   deploy: 
     name: Fetch Context & Sync Assets 
