@@ -429,3 +429,9 @@ resource "aws_s3_bucket_acl" "cfl_center_acl" {
   acl = "private"
 }
 
+
+output "cloudfront_domain" {
+  description = "The dynamic domain name of the live cloudfront Distro"
+  value = aws_cloudfront_distribution.cicd_website_distribution.domain_name
+}
+

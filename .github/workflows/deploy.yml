@@ -69,3 +69,32 @@ jobs:
         run: | 
           aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id}} --paths "/*" 
 
+      - name: Terraform Apply 
+        id: tf_apply 
+        run: | 
+          cd infrastructure 
+          terraform apply -auto-approve
+
+      - name: Capture Live Endpoint URL 
+        id: capture_url 
+        run: | 
+          cd infrastructure 
+          URL=$(terraform output -raw cloudfront_domain) 
+          echo "LIVE_URL=https://$URL" >> $GITHUB_ENV 
+
+      - name: Run Nuclei DAST Scan 
+        uses: projectdiscovery/nuclei-action@v1
+        with: 
+          target: ${{ env.LIVE_URL }} 
+          severity: critica,high 
+          output: nuclei-report.txt
+          silent: true 
+
+      - name: Secure Scan Report Artifact 
+        uses: actions/upload-artifact@v4 
+        with: 
+          name: nuclei-security-report 
+          retention-days: 7 
+          overwrite: true 
+
+  
