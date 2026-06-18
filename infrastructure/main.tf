@@ -225,7 +225,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
 
   origin {
     domain_name = aws_s3_bucket.cicd_website_backup.bucket_regional_domain_name 
-    origin_id = "S3-Website_Origin-Backup" 
+    origin_id = "S3-Website-Origin-Backup" 
     origin_access_control_id = aws_cloudfront_origin_access_control.cicd_website_oac.id 
   }
 
@@ -276,7 +276,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
   restrictions {
     geo_restriction {
       restriction_type = "blacklist"
-      locations = []
+      locations = ["AQ"]
     }
   }
 
@@ -321,7 +321,7 @@ resource "aws_s3_bucket_policy" "cicd_website_auth" {
 # IAM role ARN for the workflow's `aws-actions/configure-aws-credentials` OIDC step.
 resource "aws_ssm_parameter" "cicd_role_arn" {
   name        = "/config/production/cloudpipe/cicd_role_arn"
-  type        = "SecureString"
+  type        = "String"
   value       = aws_iam_role.github_actions.arn
   description = "The exact execution IAM Role ARN needed for the GitHub OIDC Handshake"
 }
@@ -329,7 +329,7 @@ resource "aws_ssm_parameter" "cicd_role_arn" {
 # Target S3 bucket name for `aws s3 sync` (or equivalent) in the deploy job.
 resource "aws_ssm_parameter" "cicd_website_bucket" {
   name        = "/config/production/cloudpipe/cicd_website_bucket"
-  type        = "SecureString"
+  type        = "String"
   value       = aws_s3_bucket.cicd_website_bucket.id
   description = "The S3 bucket name for the CICD website"
 }
@@ -337,7 +337,7 @@ resource "aws_ssm_parameter" "cicd_website_bucket" {
 # CloudFront distribution ID so the pipeline can create cache invalidations after upload.
 resource "aws_ssm_parameter" "cloudfront_distibution_id" {
   name        = "/config/production/cloudpipe/cloudfront_distribution_id"
-  type        = "SecureString"
+  type        = "String"
   value       = aws_cloudfront_distribution.cicd_website_distribution.id
   description = "The Edge cache network distribution ID used to trigger global file flushes"
 }
