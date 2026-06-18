@@ -247,7 +247,7 @@ resource "aws_cloudfront_distribution" "cicd_website_distribution" {
 
   logging_config {
     include_cookies = false 
-    bucket = aws_s3_bucket.cicd_website_backup.bucket_regional_domain_name
+    bucket = aws_s3_bucket.cfl_center.bucket_regional_domain_name
     prefix = "cloudfront-logs"
   }
 
@@ -377,5 +377,55 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "cicd_website_back
       sse_algorithm = "AES256"
     }
   }
+}
+
+resource "aws_s3_bucket" "cfl_center" {
+  bucket = "cfl-center-${random_string.suffix.result}"
+}
+
+# Blocks all public ACLs and bucket policies so objects cannot be exposed on the open internet.
+resource "aws_s3_bucket_public_access_block" "cfl_center_policy" {
+  bucket = aws_s3_bucket.cfl_center.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
+}
+
+# Keeps object history so rollbacks and accidental overwrites are recoverable.
+resource "aws_s3_bucket_versioning" "cfl_center_bucket_versioning" {
+  bucket = aws_s3_bucket.cfl_center.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+
+}
+
+# Encrypts all objects at rest with SSE-S3 (AES-256).
+resource "aws_s3_bucket_server_side_encryption_configuration" "cfl_center_bucket_encryption_configuration" {
+  bucket = aws_s3_bucket.cfl_center.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_ownership_controls" "cfl_center_ownership" {
+  bucket = aws_s3_bucket.cfl_center.id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "cfl_center_acl" {
+  depends_on = [ aws_s3_bucket_ownership_controls.cfl_center_ownership ]
+  bucket = aws_s3_bucket.cfl_center.id
+  acl = "private"
 }
 
