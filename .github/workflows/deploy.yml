@@ -83,12 +83,9 @@ jobs:
           echo "LIVE_URL=https://$URL" >> $GITHUB_ENV 
 
       - name: Run Nuclei DAST Scan 
-        uses: projectdiscovery/nuclei-action@v1
-        with: 
-          target: ${{ env.LIVE_URL }} 
-          severity: critica,high 
-          output: nuclei-report.txt
-          silent: true 
+        uses: projectdiscovery/nuclei-action@v3
+        with:
+          args: "-u ${{ env.LIVE_URL }} -severity critical,high -output nuclei-report.txt -silent"
 
       - name: Secure Scan Report Artifact 
         uses: actions/upload-artifact@v4 
