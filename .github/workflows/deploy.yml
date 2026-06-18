@@ -83,13 +83,13 @@ jobs:
       - name: Setup Terraform 
         uses: hashicorp/setup-terraform@v3 
         with: 
-          terraform_version: "1.7.0"
+          terraform_version: "1.15.0"
       
       - name: Terraform Init 
         run: | 
           cd infrastructure 
           terraform init 
-          
+
       - name: Terraform Apply 
         id: tf_apply 
         run: | 
