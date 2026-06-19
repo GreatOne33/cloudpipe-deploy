@@ -1,4 +1,29 @@
 # -----------------------------------------------------------------------------
+# GitHub Actions OIDC — federated identity for CI/CD (no long-lived AWS keys)
+# -----------------------------------------------------------------------------
+
+# Fetches GitHub Actions' OIDC issuer TLS certificate so AWS can trust that identity provider.
+data "tls_certificate" "github" {
+  url = "https://token.actions.githubusercontent.com"
+}
+
+
+# output "github_live_thumbprint" {
+#   value       = data.tls_certificate.github.certificates[0].sha1_fingerprint
+#   description = "This is the cryptographic SSL certificate footprint fetched live from GitHub's authorization servers."
+# }
+
+
+# Registers GitHub as an IAM OIDC identity provider so workflows can assume AWS roles via web identity.
+resource "aws_iam_openid_connect_provider" "github" {
+  url = "https://token.actions.githubusercontent.com"
+  client_id_list = ["sts.amazonaws.com"]
+
+  thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
+
+}
+
+# -----------------------------------------------------------------------------
 # S3 — private origin bucket for static website assets (deployed by GitHub Actions)
 # -----------------------------------------------------------------------------
 
