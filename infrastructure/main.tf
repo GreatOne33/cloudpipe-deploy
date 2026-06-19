@@ -1,102 +1,4 @@
 # -----------------------------------------------------------------------------
-# GitHub Actions OIDC — federated identity for CI/CD (no long-lived AWS keys)
-# -----------------------------------------------------------------------------
-
-# Fetches GitHub Actions' OIDC issuer TLS certificate so AWS can trust that identity provider.
-data "tls_certificate" "github" {
-  url = "https://token.actions.githubusercontent.com"
-}
-
-
-# output "github_live_thumbprint" {
-#   value       = data.tls_certificate.github.certificates[0].sha1_fingerprint
-#   description = "This is the cryptographic SSL certificate footprint fetched live from GitHub's authorization servers."
-# }
-
-
-# Registers GitHub as an IAM OIDC identity provider so workflows can assume AWS roles via web identity.
-resource "aws_iam_openid_connect_provider" "github" {
-  url = "https://token.actions.githubusercontent.com"
-  client_id_list = ["sts.amazonaws.com"]
-  thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
-}
-
-
-# Trust policy: only GitHub Actions from the specified repo/branch may assume the deploy role.
-data "aws_iam_policy_document" "github_actions_trust" {
-  statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    effect  = "Allow"
-
-    principals {
-      type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:aud"
-      values   = ["sts.amazonaws.com"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:GreatOne33/cloudpipe-deploy:ref:refs/heads/main"]
-    }
-  }
-
-}
-
-
-# IAM role that GitHub Actions assumes at deploy time (OIDC → STS → temporary credentials).
-resource "aws_iam_role" "github_actions" {
-  name               = "github-actions-deployer-${random_string.suffix.result}"
-  assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
-}
-
-# Permissions granted to the deploy role: sync site files to S3, invalidate CloudFront, read deploy config from SSM.
-data "aws_iam_policy_document" "cicd_execution_permissions" {
-  statement {
-    sid       = "ListBucketForSync"
-    actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
-    resources = [aws_s3_bucket.cicd_website_bucket.arn]
-  }
-
-  statement {
-    sid       = "ManageBucketObjects"
-    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.cicd_website_bucket.arn}/*"]
-  }
-
-  statement {
-    sid       = "CloudFrontCacheInvalidation"
-    actions   = ["cloudfront:CreateInvalidation"]
-    resources = [aws_cloudfront_distribution.cicd_website_distribution.arn]
-  }
-
-  statement {
-    sid       = "ReadSSMParameters"
-    actions   = ["ssm:GetParameter", "ssm:GetParameters"]
-    resources = ["arn:aws:ssm:us-east-1:${data.aws_caller_identity.current.account_id}:parameter/config/production/cloudpipe/*"] 
-  }
-}
-
-# IAM policy document attached to the GitHub Actions deploy role.
-resource "aws_iam_policy" "cicd_policy" {
-  name        = "github-actions-cicd-policy"
-  description = "Tightly scoped data sync, SSM read, and cache invalidation permissions"
-  policy      = data.aws_iam_policy_document.cicd_execution_permissions.json
-}
-
-# Binds the CI/CD permissions policy to the GitHub Actions IAM role.
-resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
-  role       = aws_iam_role.github_actions.name
-  policy_arn = aws_iam_policy.cicd_policy.arn
-}
-
-
-# -----------------------------------------------------------------------------
 # S3 — private origin bucket for static website assets (deployed by GitHub Actions)
 # -----------------------------------------------------------------------------
 
@@ -323,7 +225,7 @@ resource "aws_s3_bucket_policy" "cicd_website_auth" {
 resource "aws_ssm_parameter" "cicd_role_arn" {
   name        = "/config/production/cloudpipe/cicd_role_arn"
   type        = "String"
-  value       = aws_iam_role.github_actions.arn
+  value       = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-deployer-stable"
   description = "The exact execution IAM Role ARN needed for the GitHub OIDC Handshake"
 }
 
@@ -346,7 +248,7 @@ resource "aws_ssm_parameter" "cloudfront_distibution_id" {
 resource "github_actions_variable" "oidc_role_var" {
   repository = "cloudpipe-deploy"
   variable_name = "AWS_ROLE_ARN"
-  value = aws_iam_role.github_actions.arn
+  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-deployer-stable"
 }
 
 resource "aws_s3_bucket" "cicd_website_backup" {
