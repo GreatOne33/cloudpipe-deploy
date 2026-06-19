@@ -23,6 +23,47 @@ resource "aws_iam_openid_connect_provider" "github" {
 
 }
 
+# Permissions granted to the deploy role: sync site files to S3, invalidate CloudFront, read deploy config from SSM.
+data "aws_iam_policy_document" "cicd_execution_permissions" {
+  statement {
+    sid       = "ListBucketForSync"
+    actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
+    resources = [aws_s3_bucket.cicd_website_bucket.arn]
+  }
+
+  statement {
+    sid       = "ManageBucketObjects"
+    actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+    resources = ["${aws_s3_bucket.cicd_website_bucket.arn}/*"]
+  }
+
+  statement {
+    sid       = "CloudFrontCacheInvalidation"
+    actions   = ["cloudfront:CreateInvalidation"]
+    resources = [aws_cloudfront_distribution.cicd_website_distribution.arn]
+  }
+
+  statement {
+    sid       = "ReadSSMParameters"
+    actions   = ["ssm:GetParameter", "ssm:GetParameters"]
+    resources = ["arn:aws:ssm:us-east-1:*:parameter/config/production/cloudpipe/*"]
+  }
+}
+
+# IAM policy document attached to the GitHub Actions deploy role.
+resource "aws_iam_policy" "cicd_policy" {
+  name        = "github-actions-cicd-policy"
+  description = "Tightly scoped data sync, SSM read, and cache invalidation permissions"
+  policy      = data.aws_iam_policy_document.cicd_execution_permissions.json
+}
+
+# Binds the CI/CD permissions policy to the GitHub Actions IAM role.
+resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
+  role       = "github-actions-deployer-stable"
+  policy_arn = aws_iam_policy.cicd_policy.arn
+}
+
+
 # -----------------------------------------------------------------------------
 # S3 — private origin bucket for static website assets (deployed by GitHub Actions)
 # -----------------------------------------------------------------------------
