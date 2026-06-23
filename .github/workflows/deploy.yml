@@ -92,6 +92,8 @@ jobs:
 
       - name: Terraform Apply 
         id: tf_apply 
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOEKN }}
         run: | 
           cd infrastructure 
           terraform apply -auto-approve

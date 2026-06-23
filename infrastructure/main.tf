@@ -57,11 +57,6 @@ resource "aws_iam_policy" "cicd_policy" {
   policy      = data.aws_iam_policy_document.cicd_execution_permissions.json
 }
 
-# Binds the CI/CD permissions policy to the GitHub Actions IAM role.
-resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
-  role       = "github-actions-deployer-stable"
-  policy_arn = aws_iam_policy.cicd_policy.arn
-}
 
 
 # -----------------------------------------------------------------------------
