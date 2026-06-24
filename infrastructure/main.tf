@@ -15,6 +15,7 @@ data "tls_certificate" "github" {
 
 
 # Registers GitHub as an IAM OIDC identity provider so workflows can assume AWS roles via web identity.
+
 resource "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
@@ -54,6 +55,14 @@ resource "aws_iam_role" "github_actions" {
   name               = "github-actions-deployer-${random_string.suffix.result}"
   assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
 }
+
+resource "github_actions_secret" "oidc_role_secret" {
+  repository = "cloudpipe-deploy"
+  secret_name = "AWS_ROLE_ARN"
+
+  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github_actions.arn"
+}
+
 
 
 # Permissions granted to the deploy role: sync site files to S3, invalidate CloudFront, read deploy config from SSM.
