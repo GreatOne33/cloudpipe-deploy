@@ -86,7 +86,7 @@ jobs:
       - name: Run Nuclei DAST Scan 
         uses: projectdiscovery/nuclei-action@v3
         with:
-          args: "-u ${{ env.LIVE_URL }} -severity critical,high -output nuclei-report.txt -silent"
+          args: "-u ${{ env.LIVE_URL }} -severity critical,high,medium -output nuclei-report.txt -silent"
 
       - name: Create Report Placeholder if Empty
         run: |
