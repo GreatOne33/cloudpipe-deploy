@@ -52,18 +52,9 @@ data "aws_iam_policy_document" "github_actions_trust" {
 
 # IAM role that GitHub Actions assumes at deploy time (OIDC → STS → temporary credentials).
 resource "aws_iam_role" "github_actions" {
-  name               = "github-actions-deployer-${random_string.suffix.result}"
+  name               = "github-actions-deployer-stable"
   assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
 }
-
-resource "github_actions_secret" "oidc_role_secret" {
-  repository = "cloudpipe-deploy"
-  secret_name = "AWS_ROLE_ARN"
-
-  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github_actions_deployer-${random_string.suffix.result}"
-}
-
-
 
 # Permissions granted to the deploy role: sync site files to S3, invalidate CloudFront, read deploy config from SSM.
 data "aws_iam_policy_document" "cicd_execution_permissions" {
