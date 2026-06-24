@@ -1,4 +1,4 @@
-# -----------------------------------------------------------------------------
+## -----------------------------------------------------------------------------
 # GitHub Actions OIDC — federated identity for CI/CD (no long-lived AWS keys)
 # -----------------------------------------------------------------------------
 
@@ -18,23 +18,56 @@ data "tls_certificate" "github" {
 resource "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
   client_id_list = ["sts.amazonaws.com"]
-
   thumbprint_list = [data.tls_certificate.github.certificates[0].sha1_fingerprint]
+}
+
+
+# Trust policy: only GitHub Actions from the specified repo/branch may assume the deploy role.
+data "aws_iam_policy_document" "github_actions_trust" {
+  statement {
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+    effect  = "Allow"
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:GreatOne33/cloudpipe-deploy:ref:refs/heads/main"]
+    }
+  }
 
 }
+
+
+# IAM role that GitHub Actions assumes at deploy time (OIDC → STS → temporary credentials).
+resource "aws_iam_role" "github_actions" {
+  name               = "github-actions-deployer-${random_string.suffix.result}"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
+}
+
 
 # Permissions granted to the deploy role: sync site files to S3, invalidate CloudFront, read deploy config from SSM.
 data "aws_iam_policy_document" "cicd_execution_permissions" {
   statement {
     sid       = "ListBucketForSync"
     actions   = ["s3:ListBucket", "s3:GetBucketLocation"]
-    resources = [aws_s3_bucket.cicd_website_bucket.arn]
+    resources = [aws_s3_bucket.cicd_website_bucket.arn, aws_s3_bucket.cicd_website_backup.arn]
   }
 
   statement {
     sid       = "ManageBucketObjects"
     actions   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
-    resources = ["${aws_s3_bucket.cicd_website_bucket.arn}/*"]
+    resources = ["${aws_s3_bucket.cicd_website_bucket.arn}/*", "${aws_s3_bucket.cicd_website_backup.arn}/*"]
   }
 
   statement {
@@ -59,9 +92,10 @@ resource "aws_iam_policy" "cicd_policy" {
 
 # Binds the CI/CD permissions policy to the GitHub Actions IAM role.
 resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
-  role       = "github-actions-deployer-stable"
+  role       = aws_iam_role.github_actions.name
   policy_arn = aws_iam_policy.cicd_policy.arn
 }
+
 
 # -----------------------------------------------------------------------------
 # S3 — private origin bucket for static website assets (deployed by GitHub Actions)
