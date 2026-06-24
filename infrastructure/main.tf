@@ -60,7 +60,7 @@ resource "github_actions_secret" "oidc_role_secret" {
   repository = "cloudpipe-deploy"
   secret_name = "AWS_ROLE_ARN"
 
-  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github_actions.arn"
+  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github_actions_deployer-${random_string.suffix.result}"
 }
 
 
