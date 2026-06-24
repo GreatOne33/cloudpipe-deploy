@@ -57,7 +57,11 @@ resource "aws_iam_policy" "cicd_policy" {
   policy      = data.aws_iam_policy_document.cicd_execution_permissions.json
 }
 
-
+# Binds the CI/CD permissions policy to the GitHub Actions IAM role.
+resource "aws_iam_role_policy_attachment" "cicd_policy_attach" {
+  role       = "github-actions-deployer-stable"
+  policy_arn = aws_iam_policy.cicd_policy.arn
+}
 
 # -----------------------------------------------------------------------------
 # S3 — private origin bucket for static website assets (deployed by GitHub Actions)
@@ -304,13 +308,16 @@ resource "aws_ssm_parameter" "cloudfront_distibution_id" {
   type        = "String"
   value       = aws_cloudfront_distribution.cicd_website_distribution.id
   description = "The Edge cache network distribution ID used to trigger global file flushes"
+
 }
 
-resource "github_actions_variable" "oidc_role_var" {
-  repository = "cloudpipe-deploy"
-  variable_name = "AWS_ROLE_ARN"
-  value = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-actions-deployer-stable"
+resource "aws_ssm_parameter" "cloudfront_domain" {
+  name        = "/config/production/cloudpipe/cloudfront_domain"
+  type        = "String"
+  value       = aws_cloudfront_distribution.cicd_website_distribution.domain_name
+  description = "The dynamic endpoint URL of the CloudFront distribution used by Nuclei"
 }
+
 
 resource "aws_s3_bucket" "cicd_website_backup" {
   bucket = "cloudpipe-backup-${random_string.suffix.result}"

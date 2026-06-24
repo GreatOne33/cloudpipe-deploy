@@ -66,8 +66,11 @@ jobs:
           BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_website_bucket" --query "Parameter.Value" --output text) 
           DIST_ID=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_distribution_id" --query "Parameter.Value" --output text)
 
+          LIVE_DOMAIN=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_domain" --query "Parameter.Value" --output text)
+
           echo "::add-mask::$BUCKET"
           echo "::add-mask::$DIST_ID"
+          echo "live_url=https://$LIVE_DOMAIN" >> $GITHUB_ENV
 
           echo "s3_bucket=$BUCKET" >> $GITHUB_OUTPUT 
           echo "cloudfront_id=$DIST_ID" >> $GITHUB_OUTPUT 
@@ -79,31 +82,6 @@ jobs:
       - name: Invalidate Cloudfront Global Cache Edge Points 
         run: | 
           aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id}} --paths "/*" 
-
-      - name: Setup Terraform 
-        uses: hashicorp/setup-terraform@v3 
-        with: 
-          terraform_version: "1.15.0"
-      
-      - name: Terraform Init 
-        run: | 
-          cd infrastructure 
-          terraform init 
-
-      - name: Terraform Apply 
-        id: tf_apply 
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOEKN }}
-        run: | 
-          cd infrastructure 
-          terraform apply -auto-approve
-
-      - name: Capture Live Endpoint URL 
-        id: capture_url 
-        run: | 
-          cd infrastructure 
-          URL=$(terraform output -raw cloudfront_domain) 
-          echo "LIVE_URL=https://$URL" >> $GITHUB_ENV 
 
       - name: Run Nuclei DAST Scan 
         uses: projectdiscovery/nuclei-action@v3
