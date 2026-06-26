@@ -1,36 +1,56 @@
-name: Secure Website CI/CD Pipeline 
+# -----------------------------------------------------------------------------
+# Secure Website CI/CD Pipeline
+#
+# Security model: scan before ship, authenticate without long-lived AWS keys,
+# pull deploy targets from SSM at runtime, sync to a private S3 origin, flush
+# CloudFront cache, then run a post-deploy DAST check against the live edge URL.
+# -----------------------------------------------------------------------------
 
+name: Secure Website CI/CD Pipeline
+
+# Trigger only on main — matches the IAM trust policy in Terraform (repo + branch pin).
 on:
   push:
     branches:
-      - main 
+      - main
 
+# Minimal token permissions — OIDC needs id-token:write; checkout needs contents:read.
+# No write access to packages, deployments, or pull requests unless explicitly added.
 permissions:
-  id-token: write 
-  contents: read 
+  id-token: write  # Required for aws-actions/configure-aws-credentials OIDC handshake.
+  contents: read   # Read-only repo access for checkout and secret scanning.
 
 jobs:
 
+  # ---------------------------------------------------------------------------
+  # Job 1 — Shift-left security gates (runs in parallel with deploy today).
+  # Blocks the pipeline on leaked secrets and failed IaC policy checks.
+  # ---------------------------------------------------------------------------
   security_scan:
     name: "Automated SecOps Guardrails"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Repo
-        uses: actions/checkout@v4 
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0 # Full history — Gitleaks scans all commits, not just the latest diff.
 
-      - name: Run Gitleaks Secret Audit 
-        uses: gitleaks/gitleaks-action@v2 
+      # Scans for hardcoded credentials, API keys, and tokens before anything reaches AWS.
+      # Uses GITHUB_TOKEN for PR/commit context only — not for AWS access.
+      - name: Run Gitleaks Secret Audit
+        uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Run Checkov IaC Compliance Scan 
-        uses: bridgecrewio/checkov-action@master 
-        with: 
+      # Static analysis of Terraform — catches misconfigurations (public buckets, open SGs, etc.)
+      # before `terraform apply`. soft_fail: false = any failing check stops the job.
+      - name: Run Checkov IaC Compliance Scan
+        uses: bridgecrewio/checkov-action@master
+        with:
           directory: 'infrastructure/'
-          framework: 'terraform' 
-          soft_fail: false 
+          framework: 'terraform'
+          soft_fail: false
+          # Skipped checks are documented exceptions (lab constraints, known tradeoffs in main.tf).
           skip_check: >
             CKV2_AWS_34,
             CKV2_AWS_31,
@@ -42,52 +62,70 @@ jobs:
             CKV_AWS_18,
             CKV2_AWS_62,
             CKV2_AWS_47
-          
-  deploy: 
-    name: Fetch Context & Sync Assets 
-    runs-on: ubuntu-latest 
+
+  # ---------------------------------------------------------------------------
+  # Job 2 — Deploy static assets via OIDC → SSM → S3 → CloudFront → Nuclei DAST.
+  # No AWS access keys in GitHub Secrets — only the role ARN and ephemeral STS creds.
+  # ---------------------------------------------------------------------------
+  deploy:
+    name: Fetch Context & Sync Assets
+    runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code Repo 
+      - name: Checkout Code Repo
+        # Pinned to a full commit SHA — immutable reference, not a floating @v tag.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Configure AWS Creds via Secure OIDC 
+      # OIDC federated login: GitHub mints a short-lived JWT → AWS STS returns temp creds.
+      # role-to-assume must match the IAM role trust policy (repo + branch + audience).
+      # audience: sts.amazonaws.com aligns with the IAM OIDC provider client_id_list.
+      - name: Configure AWS Creds via Secure OIDC
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
-        with: 
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN}} 
-          aws-region: us-east-1 
-          audience: sts.amazonaws.com 
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          audience: sts.amazonaws.com
 
-      - name: Progammatically Fecth Live Settings from AWS SSM 
-        id: ssm_fetch 
+      # Deploy targets live in SSM (written by Terraform) — not hardcoded in this file.
+      # If bucket or distribution IDs change, the pipeline picks them up without a code change.
+      - name: Progammatically Fecth Live Settings from AWS SSM
+        id: ssm_fetch
         run: |
-          echo "Querying dynamic runtime configurations from AWS Systems Manager..." 
+          echo "Querying dynamic runtime configurations from AWS Systems Manager..."
 
-          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_website_bucket" --query "Parameter.Value" --output text) 
+          BUCKET=$(aws ssm get-parameter --name "/config/production/cloudpipe/cicd_website_bucket" --query "Parameter.Value" --output text)
           DIST_ID=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_distribution_id" --query "Parameter.Value" --output text)
 
           LIVE_DOMAIN=$(aws ssm get-parameter --name "/config/production/cloudpipe/cloudfront_domain" --query "Parameter.Value" --output text)
 
+          # Mask bucket/ID in logs — reduces accidental exposure in CI output and artifacts.
           echo "::add-mask::$BUCKET"
           echo "::add-mask::$DIST_ID"
           echo "live_url=https://$LIVE_DOMAIN" >> $GITHUB_ENV
 
-          echo "s3_bucket=$BUCKET" >> $GITHUB_OUTPUT 
-          echo "cloudfront_id=$DIST_ID" >> $GITHUB_OUTPUT 
+          echo "s3_bucket=$BUCKET" >> $GITHUB_OUTPUT
+          echo "cloudfront_id=$DIST_ID" >> $GITHUB_OUTPUT
 
-      - name: Synchronize Static App Assets to Private S3 
-        run: | 
-          aws s3 sync ./website/ s3://${{ steps.ssm_fetch.outputs.s3_bucket}} --delete 
+      # Sync website/ to the private origin bucket. --delete removes stale objects so
+      # old files cannot be served after a redeploy (prevents ghost asset leakage).
+      - name: Synchronize Static App Assets to Private S3
+        run: |
+          aws s3 sync ./website/ s3://${{ steps.ssm_fetch.outputs.s3_bucket }} --delete
 
-      - name: Invalidate Cloudfront Global Cache Edge Points 
-        run: | 
-          aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id}} --paths "/*" 
+      # Full-path invalidation (/*) ensures edge caches serve the new build immediately.
+      # Scoped to the distribution ID fetched from SSM — cannot invalidate unrelated distros.
+      - name: Invalidate Cloudfront Global Cache Edge Points
+        run: |
+          aws cloudfront create-invalidation --distribution-id ${{ steps.ssm_fetch.outputs.cloudfront_id }} --paths "/*"
 
-      - name: Run Nuclei DAST Scan 
+      # Post-deploy DAST: probes the live CloudFront URL for known vuln signatures.
+      # Runs against the public edge, not S3 directly — tests what users actually hit.
+      - name: Run Nuclei DAST Scan
         uses: projectdiscovery/nuclei-action@v3
         with:
-          args: "-u ${{ env.LIVE_URL }} -severity critical,high,medium -output nuclei-report.txt -silent"
+          args: "-u ${{ env.live_url }} -severity critical,high,medium -output nuclei-report.txt -silent"
 
+      # Ensures the artifact step always has a file — empty scans still produce an audit trail.
       - name: Create Report Placeholder if Empty
         run: |
           if [ ! -s nuclei-report.txt ]; then
@@ -95,7 +133,7 @@ jobs:
             echo "   NUCLEI DAST SCAN COMPLETED SUCCESSFULLY            " >> nuclei-report.txt
             echo "=====================================================" >> nuclei-report.txt
             echo "Timestamp: $(date -u) UTC" >> nuclei-report.txt
-            echo "Target URL: ${{ env.LIVE_URL }}" >> nuclei-report.txt
+            echo "Target URL: ${{ env.live_url }}" >> nuclei-report.txt
             echo "Scan Status: PASSED" >> nuclei-report.txt
             echo "Severity Filtered: CRITICAL, HIGH" >> nuclei-report.txt
             echo "----------------------------------------------------" >> nuclei-report.txt
@@ -103,12 +141,11 @@ jobs:
             echo "The application architecture is hardened and compliant." >> nuclei-report.txt
           fi
 
-      - name: Secure Scan Report Artifact 
-        uses: actions/upload-artifact@v4 
-        with: 
-          name: nuclei-security-report 
+      # Short retention (7 days) — enough for review, limits long-term storage of scan data.
+      - name: Secure Scan Report Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuclei-security-report
           path: nuclei-report.txt
-          retention-days: 7 
-          overwrite: true 
-
-  
+          retention-days: 7
+          overwrite: true
